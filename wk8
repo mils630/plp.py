@@ -1,0 +1,30 @@
+import pandas as pd
+df = pd.read_csv("metadata.csv")
+
+print(df.shape)
+print(df.info())
+print(df.head())
+print(df.isnull().sum())
+print(df.describe())
+
+
+df = df.dropna(subset=['title', 'abstract', 'publish_time'])  # drop if critical info is missing
+df['publish_time'] = pd.to_datetime(df['publish_time'], errors='coerce')
+
+df['year'] = df['publish_time'].dt.year
+df['abstract_word_count'] = df['abstract'].astype(str).apply(lambda x: len(x.split()))
+
+
+year_counts = df['year'].value_counts().sort_index()
+year_counts.plot(kind='bar')
+
+top_journals = df['journal'].value_counts().head(10)
+top_journals.plot(kind='barh')
+
+
+from collections import Counter
+import re
+words = " ".join(df['title'].dropna()).lower()
+words = re.findall(r'\b\w+\b', words)
+common_words = Counter(words).most_common(20)
+print(common_words)
