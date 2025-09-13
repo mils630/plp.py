@@ -1,40 +1,73 @@
 import os
 import requests
+import hashlib
 from urllib.parse import urlparse
 
-def fetch_image():
-    # Prompt user for the image URL
-    url = input("Enter the URL of the image you want to fetch: ").strip()
+def sanitize_filename(filename):
+    """Ensure filename is safe for saving locally."""
+    return "".join(c for c in filename if c.isalnum() or c in (' ', '.', '_')).rstrip()
 
-    # Create directory if it doesn't exist
+def get_file_hash(filepath):
+    """Return SHA256 hash of a file (to check for duplicates)."""
+    hash_sha = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_sha.update(chunk)
+    return hash_sha.hexdigest()
+
+def fetch_images(urls):
     save_dir = "Fetched_Images"
     os.makedirs(save_dir, exist_ok=True)
 
-    try:
-        # Send GET request to fetch the image
-        response = requests.get(url, stream=True, timeout=10)
-        response.raise_for_status()  # Raises an error for bad status codes
+    downloaded_hashes = set()  # Track hashes to avoid duplicates
 
-        # Extract filename from URL
-        parsed_url = urlparse(url)
-        filename = os.path.basename(parsed_url.path)
+    for url in urls:
+        url = url.strip()
+        if not url:
+            continue
 
-        # If no filename, generate one
-        if not filename:
-            filename = "downloaded_image.jpg"
+        try:
+            print(f" Connecting to: {url}")
+            response = requests.get(url, stream=True, timeout=10)
+            response.raise_for_status()  # Raises HTTPError for bad status
 
-        # Define the full save path
-        file_path = os.path.join(save_dir, filename)
+            # --- Precautions: Check important HTTP headers ---
+            content_type = response.headers.get("Content-Type", "")
+            if not content_type.startswith("image/"):
+                print(f"⚠️ Skipped: {url} (Not an image, Content-Type={content_type})")
+                continue
 
-        # Save image in binary mode
-        with open(file_path, "wb") as file:
-            for chunk in response.iter_content(1024):
-                file.write(chunk)
+            # Extract filename from URL
+            parsed_url = urlparse(url)
+            filename = os.path.basename(parsed_url.path)
+            if not filename:
+                filename = "downloaded_image.jpg"
 
-        print(f" Image successfully fetched and saved at: {file_path}")
+            filename = sanitize_filename(filename)
+            file_path = os.path.join(save_dir, filename)
 
-    except requests.exceptions.RequestException as e:
-        print(f" Respectfully, we could not fetch the image. Reason: {e}")
+            # Save image temporarily to check hash
+            with open(file_path, "wb") as file:
+                for chunk in response.iter_content(1024):
+                    file.write(chunk)
+
+            # Compute hash to detect duplicates
+            file_hash = get_file_hash(file_path)
+            if file_hash in downloaded_hashes:
+                print(f" Duplicate detected, deleting: {filename}")
+                os.remove(file_path)
+                continue
+
+            downloaded_hashes.add(file_hash)
+            print(f" Image saved: {file_path}")
+
+        except requests.exceptions.RequestException as e:
+            print(f" Could not fetch {url}. Reason: {e}")
 
 if __name__ == "__main__":
-    fetch_image()
+    print("Ubuntu-Inspired Image Fetcher ")
+    print("Enter multiple image URLs separated by commas:")
+    user_input = input("URLs: ")
+
+    urls = user_input.split(",")
+    fetch_images(urls)
